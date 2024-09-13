@@ -13,7 +13,9 @@ setup(
     install_requires=[
         'numpy',
         'pandas',
-        'scipy'
+        'scipy',
+        'mesa',
+        'tqdm'
         ],
     classifiers=[
         'Programming Language :: Python :: 3',

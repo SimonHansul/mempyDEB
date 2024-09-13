@@ -7,6 +7,10 @@ mempyDEB.egg-info/SOURCES.txt
 mempyDEB.egg-info/dependency_links.txt
 mempyDEB.egg-info/requires.txt
 mempyDEB.egg-info/top_level.txt
+mempyDEB/DEBIBM/__init__.py
+mempyDEB/DEBIBM/classes.py
+mempyDEB/DEBIBM/defaultparams.py
+mempyDEB/DEBIBM/simulators.py
 mempyDEB/DEBODE/__init__.py
 mempyDEB/DEBODE/defaultparams.py
 mempyDEB/DEBODE/derivatives.py
