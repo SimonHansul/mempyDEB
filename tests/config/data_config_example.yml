@@ -1,0 +1,79 @@
+# example for a data config file
+# data is divided into time-resolved and scalar
+# the minimum information required for each entry is a name and path
+# the basic structure is 
+# time_resolved:
+#   - name: 
+#     path
+#     time_var:
+#     grouping_vars:
+#        - [list column names of indepdendent variables here]
+#     response_vars:
+#        - [list column names of response variables here]
+#     weight: 1 
+#   ...
+# scalar:
+#   - name: 
+#     path
+#     independent_vars:
+#        - [list column names of indepdendent variables here] --> can be empty for scalar data
+#     response_vars:
+#        - [list column names of response variables here]
+#     weight: 1
+#   ...
+# paths are given relative to the project directory root
+
+time_resolved:
+  - name: growth_agg # always needed and has to be unique within the dataset
+    path: ./data/dp3_test_data_growth_tidy_agg.csv # path to the data file is relative to the project directory
+    time_var: t_birth # the column that indicates time in the data table
+    grouping_vars: # grouping variables are all independent variables but time (optional)
+      - food_level
+    response_vars: 
+      - drymass_mean
+    weight: 1
+    description: Daphnia pulex growth at two food levels, aggregated over individuals # optional 
+    source: Hansul et al. (2024) Environ. Toxicol. Chem. # optional
+  - name: repro_agg
+    path: ./data/dp3_test_data_repro_tidy_agg.csv
+    time_var: t_birth
+    grouping_vars:
+      - food_level
+    response_vars:
+      - cum_repro_mean
+    weight: 1
+    meta:
+      - description: Daphnia pulex reproduction at two food levels, aggregated over individuals
+      - source: Hansul et al. (2024) Environ. Toxicol. Chem.
+scalar:  
+  - name: growth_stats_agg
+    path: ./data/dp3_test_data_growth_stats_agg.csv
+    grouping_vars: 
+      - food_level
+    response_vars:
+      - max_drymass_mean
+      - drymass_at_birth_mean
+    weight: 1
+    meta:
+      - description: Growth statistics at two food levels, derived from the time-resolved data, aggregated over individuals
+      - source: Derived from raw data Hansul et al. (2024) Environ. Toxicol. Chem.
+  - name: repro_stats_agg
+    path: ./data/dp3_test_data_repro_stats_agg.csv
+    grouping_vars:
+      - food_level
+    response_vars:
+      - birth_to_first_hatch_mean
+      - final_cum_repro_mean
+    weight: 1
+    meta:
+      - description: Repro statistics at two food levels, derived from the time-resolved data, aggregated over individuals
+      - source: Derived from raw data by Hansul et al. (2024) Environ. Toxicol. Chem.
+  - name: misc_traits
+    path: ./data/dpulex_misc_traits.yml
+    response_vars: # if scalar data is given in a yml file, response_vars are nto strictly needed
+      - age_at_birth
+      - egg_drymass
+      - S_max_rel
+    weight: 1
+    description: General life-history traits for Daphnia pulex
+    source: Various, listed in source file

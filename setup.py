@@ -15,7 +15,9 @@ setup(
         'pandas',
         'scipy',
         'mesa',
-        'tqdm'
+        'tqdm',
+        'yml',
+        'collections'
         ],
     classifiers=[
         'Programming Language :: Python :: 3',

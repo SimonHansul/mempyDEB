@@ -1,0 +1,3 @@
+food_level,max_drymass_mean,max_drymass_sd,max_drymass_n,drymass_at_birth_mean,drymass_at_birth_sd,drymass_at_birth_n
+0.4,0.08946569092045768,0.011395380424803769,7,NaN,NaN,0
+0.1,0.0751757164969435,0.013593052113445928,6,0.008903781627348143,0.0017716495372943973,10

@@ -1,0 +1,16 @@
+# miscellaneous traits which are helpful to obtain a biologically plausible model
+# this also may include plausability checks of the predictions, as done here for S_max_rel (similar to pseudo-data)
+
+age_at_birth:
+    value: 2
+    unit: d
+    source: guess
+egg_drymass:
+    value: 5e-3
+    unit: mg
+    source: estimated from Martin-Creuzburg et al (2018) Figure 5 (https://doi.org/10.3389/fevo.2018.00089)
+S_max_rel:
+    value: 1
+    unit: none
+    description: Compares the maximum strucutral mass reached by the end of the experimental period to the maximum structure implied by the parameters. The value is 1 since we expect the organism to approach it's maximum length by the end of the experimental period.
+    source: plausability check
