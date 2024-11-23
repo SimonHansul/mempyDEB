@@ -1,16 +1,114 @@
-# ModelFittingAssistant.py
-# Defines the ModelFit class
 
 from scipy.optimize import minimize
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-import pyabc
 import tempfile
 import os
 
-REQUIRED_FOR_OPTIM = ['simulator', 'data', 'loss', 'default_params', 'intguess']
-REQUIRED_FOR_BAYES = ['simulator', 'data', 'loss', 'default_params', 'prior']
+import pandas as pd 
+
+def load_data(paths: dict):
+    """
+    Load data from a dictionary of paths and optional keyword arguments for reading the data. <br>
+    Data *has* to be in tidy (column-oriented) format. <br>
+    Metadata can be added to CSV files, by the skiprows argument has to be supllied (see examples).
+
+    ## Examples
+
+    The `paths` dict can contain just the paths to the individual data files: 
+
+    ```
+    data = load_data({
+        'growth' : 'data/my_growth_data.csv',
+        'repro' : 'data/my_repro_data.csv'
+    })
+    ```
+
+    Optionally, we can supply keyword arguments for each data file to read. <br>
+    For example, if a CSV has metadata (which is encouraged), 
+    we have to supply the skiprows argument to skip the number of rows containing metadata:
+
+       ```
+    data = load_data({
+        'growth' : ('data/my_growth_data.csv', {'skiprows' : 4}),
+        'repro' : ('data/my_repro_data.csv', {'skiprows' : 4})
+    })
+    ```
+
+    All kwargs are passed down to `pandas.read_csv`.
+    """
+
+    data = {}
+    
+    for key,info in paths.items():
+
+        # if the info for each data is a list or tuple, 
+        # we assume that it contains the path and a dict with kwargs for reading the data
+        if type(info) in (list,tuple):
+            path = info[0]
+            kwargs = info[1]
+            data[key] = pd.read_csv(path, **kwargs)
+        # otherwise, we assume that just the path has been given
+        else:
+            path = info
+            data[key] = pd.read_csv(path)
+
+    return data
+
+
+def setup_fit(
+        paths: dict,
+        colnames: dict,
+        intguess: dict = None
+        ):
+    
+    """
+    Set-up `ModelFit` object to perform fitting of DEBtox2019 to growth, reproduction, and/or survival data.<br>
+    Loads the data and defines the appropriate simulator and loss functions. <br>
+    Data is expected to be in *tidy* format sensu Wickham (https://www.jstatsoft.org/article/view/v059i10).
+
+    ## Parameters
+
+    - paths: A dictionary of file paths pointing to data for length-growth, cumulative reproduction and survival. Possible keys are `growth`, `repro`, `survival`.
+    - colnames: Maps the variables `time`, `exposure`, `length`, `survival` and `cum_repro` to columns in the corresponding data tables. Endpoints which are not provided can be skipped. 
+
+    ## Examples 
+
+    ```Python 
+    fit = setup_fit(
+        paths = {'growth' : 'data/growthdata.csv', 'repro' : 'data/reprodata.csv'},
+        colnames = {'time' : 't_day', 'length' : 'length_mm', 'cum_repro' : 'cum_repro'}
+
+    )
+    ```
+    """
+
+    fit = ModelFit()
+    
+    fit.data = load_data(paths)
+    
+    if 'growth' in fit.data.keys():
+        fit.data['growth'].rename({
+            colnames['time'] : 't',
+            colnames['length'] : 'L'
+            })
+        
+        # TODO: add optional variable for food level
+        # TODO: add optional variable for temperature
+    
+    if 'repro' in fit.data.keys():
+        fit.data['repro'].rename({
+            colnames['time'] : 't',
+            colnames['cum_repro'] : 'cum_repro'
+            })
+        
+        # TODO: add optional variable for food level
+        # TODO: add optional variable for temperature 
+
+    #fit.data.simulator = simulate_DEBtox # TODO: add 
+    #fit.data.loss = fit_data.define_loss()
+
 
 def SSQ(a, b): 
     """
