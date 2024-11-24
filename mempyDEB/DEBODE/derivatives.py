@@ -18,11 +18,12 @@ def LL2h(x, p):
 
 def LL2M(x, p):
     """
-    Cumulative hazard function of the two-parameter log-logistic function, shifted to have a lower limit of 1. 
-    Used to model sublethal effects of PMoAs for which the affected state variable 
+    Inverse of the log-logistic application, 
+    used to model sublethal effects of PMoAs for which the affected state variable 
     increases with increasing damage (maintenance costs).
     """
-    return 1 - np.log(LL2(x, p))
+    return 1+np.power(x/p[0], p[1]) # to ways of doing this - this one has the more interpretable parameter
+    #return 1 - np.log(LL2(x, p))
 
 def DEBBase(t, y, glb, spc, LS_max):
     """
@@ -33,6 +34,13 @@ def DEBBase(t, y, glb, spc, LS_max):
     The TKTD part assumes log-logistic relationships between scaled damage and the relative response. <br>
     There is no explicit representation of "stress". Instead, we compute the relative response directly by applying the appropriate form of the dose-response function.
     This is the same model formulation as used in the Julia package DEBBase.jl.
+
+    ## Naming conventions:
+
+    - `eta_AB` is the efficiency of converting A to B, or yield
+    - `k_x` is a rate constant related to the derivative of x
+    - `y_j` is a relative response with respect to PMoA j
+    - `X`, `I`, `A`, `M`, `S` are food, ingestion, assimilation, somatic maintenance and structure, all expressed in mass. 
 
     args:
 
@@ -67,30 +75,29 @@ def DEBBase(t, y, glb, spc, LS_max):
     X = np.maximum(X, 0)
     
     if X_emb > 0: # feeeding and assimilation for embryos
-        Idot = spc["Idot_max_rel_emb"] * S**(2/3)
-        Adot = Idot * spc['eta_IA_0'] # this assumes that embryos are not affected by the stressor
-        Xdot_emb = -Idot
-        Xdot = 0
-        DDot_j = 0 # no change in damage for embryos
+        dI = spc["dI_max_emb"] * S**(2/3)
+        dA = dI * spc['eta_IA_0'] # this assumes that embryos are not affected by the stressor
+        dX_emb = -dI # change in vitellus
+        dX = 0 # change in vood abundanceb
+        dD_j = 0 # embryo is ingored in the
     else: # feeding, assimilation for all other life stages
-        X_V = X/glb['V_patch'] 
-        f = X_V / (X_V + spc['K_X'])
-        Idot = f * spc["Idot_max_rel"] * S**(2/3)
-        Adot = Idot * eta_IA
-        Xdot = glb['Xdot_in'] - Idot
-        Xdot_emb = 0
+        X_V = X/glb['V_patch'] # converts food mass to a concentration 
+        f = X_V / (X_V + spc['K_X']) # scaled relative response
+        dI = f * spc["dI_max"] * S**(2/3) # ingestion rate
+        dA = dI * eta_IA # assimilation rate
+        dX = glb['dX_in'] - dI # change in food abundance
+        dX_emb = 0 # change in vitellus
+        dD_j = (X_emb <= 0) * (spc['kD_j'] * (LS_max / (LS+1e-10)) * (glb['C_W'] - D_j)) - (D_j * (1/(S+1e-10)) * dS) # toxicokinetics with body size feedback
 
-    Mdot = k_M * S
-    Sdot = eta_AS * (spc['kappa'] * Adot - Mdot)
+    dM = k_M * S 
+    dS = eta_AS * (spc['kappa'] * dA - dM)
 
-    if Sdot < 0:
-        Sdot = -(Mdot / spc['eta_SA'] - spc['kappa'] * Adot)
+    if dS < 0:
+        dS = -(dM / spc['eta_SA'] - spc['kappa'] * dA)
     if (S >= spc["S_p"]):
-        Rdot = eta_AR * (1 - spc['kappa']) * Adot
+        dR = eta_AR * (1 - spc['kappa']) * dA
     else:
-        Rdot = 0
-
-    DDot_j = (X_emb <= 0) * (spc['kD_j'] * (LS_max / (LS+1e-10)) * (glb['C_W'] - D_j)) - (D_j * (1/(S+1e-10)) * Sdot)
-
-    return Sdot, Rdot, Xdot_emb, Xdot, DDot_j
+        dR = 0
+    
+    return dS, dR, dX_emb, dX, dD_j
             

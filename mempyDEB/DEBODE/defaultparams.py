@@ -16,7 +16,7 @@ defaultparams_DEBBase = Params(
 
         # Environmental parameters
         'V_patch':  0.05, # simulated volume (L)
-        'Xdot_in': 375, # food input rate (µg C / d)
+        'dX_in': 375, # food input rate (µg C / d)
         'C_W' : 0. # chemical exposure concentration
     },
     { # species-specific parameters
@@ -24,8 +24,8 @@ defaultparams_DEBBase = Params(
         'eta_IA_0': 0.35, # assimilation efficiency  (-)
         'eta_AS_0': 0.9, # growth efficency (-)
         'eta_AR_0': 0.95, # reproduction efficiency (-)
-        'Idot_max_rel': 4,  # maximum specific ingestion rate (µgC µgC^-2/3 d^-1)
-        'Idot_max_rel_emb': 4, # maximum specific ingestion rate for embryos (µgC µgC^-2/3 d^-1)
+        'dI_max': 4,  # maximum specific ingestion rate (µgC µgC^-2/3 d^-1)
+        'dI_max_emb': 4, # maximum specific ingestion rate for embryos (µgC µgC^-2/3 d^-1)
         'K_X': 0.5e3, # half-saturation constant for ingestion (µgC / L)
         'kappa': 0.9, # somatic investment fraction (-)
         'eta_SA': 0.9, # shrinking efficiency (-)

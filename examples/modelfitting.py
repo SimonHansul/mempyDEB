@@ -1,5 +1,6 @@
 
 from scipy.optimize import minimize
+from scipy import optimize
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -7,6 +8,8 @@ import tempfile
 import os
 
 import pandas as pd 
+
+from debtox2019 import *
 
 def load_data(paths: dict):
     """
@@ -49,18 +52,66 @@ def load_data(paths: dict):
             path = info[0]
             kwargs = info[1]
             data[key] = pd.read_csv(path, **kwargs)
+            
         # otherwise, we assume that just the path has been given
         else:
             path = info
             data[key] = pd.read_csv(path)
 
+        data[key].sort_values('C_W')
+
     return data
+
+def SSQ(a, b): 
+    """
+    Sum of squared errors.
+    """
+    return np.sum(np.power(a - b, 2))
+
+def log_relerr(a, b):
+    """
+    Log relative error, computed as ln((a/b)+1).
+    """
+
+    return np.sum(np.log(((a+1e-10)/(b+1e-10))+1e-10))
+
+def loss_debtox(
+        predicted: pd.DataFrame,
+        observed: dict, 
+        error_model = log_relerr
+        ):
+    """
+    Default loss function for the DEBtox model. <br>
+    At the moment, this uses the sum of squares and
+    """
+    #TODO: add loss for survival
+    #TODO: deal with missing endpoints
+
+    scale_L = np.max(observed['growth'].L)
+    scale_R = np.max(observed['repro'].cum_repro)
+
+    loss_L = pd.merge(
+        observed['growth'], predicted, 
+        on = ['t', 'C_W'], 
+        suffixes=['_observed', '_predicted']).groupby('C_W').apply(
+            lambda df : pd.DataFrame({'loss' : [error_model(df.L_predicted/scale_L, df.L_observed/scale_L)]}),
+            include_groups=False
+        ).loss.sum()
+
+    loss_R = pd.merge(
+        observed['repro'], predicted, 
+        on = ['t', 'C_W'], 
+        suffixes=['_observed', '_predicted']).groupby('C_W').apply(
+            lambda df : pd.DataFrame({'loss' : [error_model(df.cum_repro_predicted/scale_L, df.cum_repro_observed/scale_R)]}),
+            include_groups=False
+        ).loss.sum()
+
+    return (loss_L/loss_R)/2
 
 
 def setup_fit(
         paths: dict,
-        colnames: dict,
-        intguess: dict = None
+        colnames: dict
         ):
     
     """
@@ -71,7 +122,7 @@ def setup_fit(
     ## Parameters
 
     - paths: A dictionary of file paths pointing to data for length-growth, cumulative reproduction and survival. Possible keys are `growth`, `repro`, `survival`.
-    - colnames: Maps the variables `time`, `exposure`, `length`, `survival` and `cum_repro` to columns in the corresponding data tables. Endpoints which are not provided can be skipped. 
+    - colnames: Maps the variables `time`, `exposure`, `length`, `survival`, `cum_repro` to columns in the corresponding data tables. Endpoints which are not provided can be skipped. Optional additional colname fields are `temperature`.
 
     ## Examples 
 
@@ -85,36 +136,65 @@ def setup_fit(
     """
 
     fit = ModelFit()
-    
-    fit.data = load_data(paths)
-    
-    if 'growth' in fit.data.keys():
-        fit.data['growth'].rename({
-            colnames['time'] : 't',
-            colnames['length'] : 'L'
-            })
-        
-        # TODO: add optional variable for food level
-        # TODO: add optional variable for temperature
-    
-    if 'repro' in fit.data.keys():
-        fit.data['repro'].rename({
-            colnames['time'] : 't',
-            colnames['cum_repro'] : 'cum_repro'
-            })
-        
-        # TODO: add optional variable for food level
-        # TODO: add optional variable for temperature 
 
-    #fit.data.simulator = simulate_DEBtox # TODO: add 
-    #fit.data.loss = fit_data.define_loss()
+    #### loading and processing data ####
+    
+    fit.data = load_data(paths) # collects data from different csv files
+    fit.adjust_colnames(colnames) # rename columns in the data to match columns in the simulation output
+    
+    # keeping track of unique tested exposures and observed time-points across endpoints
+    fit.unique_C_Wvals = np.unique(np.concat([df.C_W.unique() for df in fit.data.values()]))
+    fit.unique_timepoints = np.unique(np.concat([df.t.unique() for df in fit.data.values()]))
+    
+    # TODO: here we should add some data checks. e.g. monotonic increase/decrease in cum repro and survival, respectively
+
+    # defining a function to plot the data
+    def plot_data(**kwargs):
+        fig, ax = plot_debtox2019_data(fit.data, **kwargs)
+        return fig,ax
+
+    fit.plot_data = plot_data
+
+    #### configuring simulations ####
+
+    # we start with the defualt debtox2019 parameters
+    fit.default_params = defaultparams_debtox2019
+
+    # adjusting exposure concentrations and time-range
+    fit.default_params.update({
+        't_max' : np.max(fit.unique_timepoints)+1,
+        'C_W' : fit.unique_C_Wvals
+    })
+
+    # here we define the simulator, 
+    # i.e. the function which generates a prediction of the data from a parameter proposal
+    
+    def simulator(p, t_eval=fit.unique_timepoints, **kwargs):
+        psim = fit.default_params.copy()
+        psim.update(p)
+        sim = simulate_debtox(psim, t_eval=t_eval, **kwargs)
 
 
-def SSQ(a, b): 
+        return sim
+
+    fit.simulator = simulator
+
+    return fit
+
+
+def isolate_controls(data: dict):
     """
-    Sum of squared errors. Example for a loss function.
+    Isolate the controls from a data dict, based on the minimum C_W values.
     """
-    return np.sum(np.power(a - b), 2)
+
+    control_data = {} # initialize an empty dict
+
+    # for all data frames in the data dict
+    for key,df in data.items():
+        # get the subset with the minimum C_W values and add them to the previously initialized dict
+        control_data[key] = df.loc[df.C_W==df.C_W.min()]
+
+    return control_data
 
 class ModelFit:
     """
@@ -140,6 +220,53 @@ class ModelFit:
         self.optimization_result = None
         self.abc_history = None
         self.accepted = None
+
+    def adjust_colnames(self, colnames: dict):
+        if 'growth' in self.data.keys():
+            self.data['growth'].rename(columns={
+                colnames['time'] : 't',
+                colnames['length'] : 'L'
+                }, inplace=True)
+            
+
+            if 'temp' in self.data['growth'].keys():
+                self.data['growth'].rename(columns={
+                    colnames['temp'] : 'T'
+                }, inplace=True)
+
+            self.data['growth'].t = self.data['growth'].t.astype(float)
+            self.data['growth'].sort_values('C_W', inplace=True)
+            
+            # TODO: add optional variable for food level
+        
+        if 'repro' in self.data.keys():
+            self.data['repro'].rename(columns={
+                colnames['time'] : 't',
+                colnames['cum_repro'] : 'cum_repro'
+                }, inplace=True)
+            
+            self.data['repro'].t = self.data['repro'].t.astype(float)
+            self.data['repro'].sort_values('C_W', inplace=True)
+            
+            if 'temperature' in self.data['repro'].keys():
+                self.data['repro'].rename(columns={
+                    colnames['temp'] : 'T'
+                }, inplace=True)
+            # TODO: add optional variable for food level
+    
+        if 'survival' in self.data.keys():
+            self.data['survival'].rename(columns={
+                colnames['time'] : 't',
+                colnames['survival'] : 'S'
+                }, inplace=True)
+            
+
+            if 'temperature' in self.data['repro'].keys():
+                self.data['repro'].rename(columns={
+                    colnames['temp'] : 'T'
+                }, inplace=True)
+            # TODO: add optional variable for food level
+    
 
     def plot_priors(self, **kwargs):
         """
@@ -256,7 +383,6 @@ class ModelFit:
         sample_ar = self.accepted.sample(weights = 'weight')[list(self.prior.keys())].iloc[0]
         return dict(zip(self.prior.keys(), sample_ar))
 
-
     def retrodict(self, n = 100):
         """ 
         Generate retrodictions based on `n` posterior samples.
@@ -268,48 +394,29 @@ class ModelFit:
             sim = self.simulator(self.posterior_sample())
             self.retrodictions.append(sim)
 
-    def define_objective_function(self, for_use_with = 'scipy'):
+    def define_objective_function(self, data = None):
+
+        if not data: 
+            data = self.data
         
-        if for_use_with == 'scipy':
-            def objective_function(parvals):
-                """
-                Objective function for the model contained in a ModelFit object
-                """
-                
-                pfit = self.intguess.copy()
-                pfit.update(dict(zip(self.intguess.keys(), parvals)))
-                
-                # calling the simulator function
-
-                prediction = self.simulator(pfit)
-
-                # calling the loss function
-                
-                return self.loss(prediction, self.data)
+        def objective_function(parvals):
+            """
+            Objective function for the model contained in a ModelFit object. <br>
+            Can be directly applied to fitting functions which expect the parameters as list-like input.
+            """
             
-            return objective_function
+            pfit = self.intguess.copy()
+            pfit.update(dict(zip(self.intguess.keys(), parvals)))
+            
+            # calling the simulator function
+
+            prediction = self.simulator(pfit)
+
+            # calling the loss function
+            
+            return self.loss(prediction, data)
         
-        if for_use_with == 'lmfit':
-            def objective_function(parvals):
-                """
-                Objective function for the model contained in a ModelFit object
-                """
-
-                parslist = [param.value for param in list(parvals.values())]
-                
-                pfit = self.intguess.copy()
-                pfit.update(dict(zip(self.intguess.keys(), parslist)))
-    
-                # calling the simulator function
-
-                prediction = self.simulator(pfit)
-
-                # calling the loss function
-                
-                return self.loss(prediction, self.data)
-            
-            return objective_function
-
+        return objective_function
 
     def run_optimization(
             self,
@@ -322,11 +429,15 @@ class ModelFit:
 
         objective_function = self.define_objective_function()
 
- 
+        x0 = list(self.intguess.values())
+
+        bounds = [(0,None) for _ in self.intguess.items()]
+
         opt = minimize(
             objective_function, # objective function 
-            list(self.intguess.values()), # initial guesses
+            x0, # initial guesses
             method = method, # optimization method to use
+            bounds = bounds,
             **kwargs
             )
                
@@ -335,38 +446,62 @@ class ModelFit:
         self.optimization_result = opt
         self.p_opt = dict(zip(self.intguess.keys(), opt.x))
 
-    def guide(self):
+    def fit_controls(self, method = 'Nelder-mead', update_defaults=False, **kwargs):
         """
-        Provide some information on what has been defined, and what is missing.
+        Rudimentary method to estimate just the baseline parameters from the controls. <br>
+        Requires that intguess is defined by the user accordingly (no TKTD parameters in the intguess).
+
+        - method: Local optimization method to use
+        - update_defaults: Wether or not to update default_params entry in the ModelFit object. Default is False and will return the optimzation object from scipy.
         """
-    
-        defined = []
-        undefined = []
-        fields = {
-            'simulator': 'simulator',
-            'data': 'data',
-            'loss': 'loss function',
-            'prior': 'prior',
-            'default_params' : 'default parameters',
-            'intguess': 'initial guess'
-        }
+        
+        self.default_params['C_W'] = [0.] # temporarily turning off simulation of exposures
 
-        for key, description in fields.items():
-            value = getattr(self, key)
-            if value is not None:
-                defined.append(description)
-            else:
-                undefined.append(description)
+        objective_function = self.define_objective_function(
+            data = isolate_controls(self.data) 
+            )
+        
+        x0 = list(self.intguess.values())
+        bounds = [(0,None) for _ in self.intguess.items()]
 
-        if len(undefined)>0:
-            joinstr = ", ".join(undefined)
-            print(f"The following fields are so far undefined: \n {joinstr}")
-               
-            print(f"Minimum needed for optimization: {REQUIRED_FOR_OPTIM}")
-            print(f"Minimum needed for Bayesian inference: {REQUIRED_FOR_BAYES}")
+        opt =  minimize(
+                objective_function, # objective function 
+                x0, # initial guesses
+                method = method, # optimization method to use
+                bounds = bounds,
+                **kwargs
+                )
+        
+        self.default_params['C_W'] = self.unique_C_Wvals # turning simulation of exposures back on
+        
+        print(f"Fitted model using {method} method. Results stored in `optimization_result`")
+        
+        if not update_defaults:
+            print("update_defaults is set to False, returning optimization object")
+            return opt
         else:
-            print("All fields are defined, ready to run optimization or Bayesian inference")
+            print("update_defaults is set to True, updating default_params in the ModelFit object based on the estimated parameters")
+            self.default_params.update(dict(zip(self.intguess.keys(), opt.x)))
+            return None
+    
 
+    #def run_global_optimization(
+    #        self,
+    #        bounds,
+    #        method: function = brute
+    #        ):
+    #    """
+    #    EXPERIMENTAL. Appply global optimization. <br>
+    #    This will currently directly return the optimization result and not save the results anywhere in the ModelFit object. <br>
+    #    We need to do more work on finding good methods for global optim in the context of DEB-TKTD models.
+    #    """
+    #
+    #    assert method in [brute, differential_evolution], "Your provided method is currently not considered for global optimization. Use brute or differential_evolution."
+    #
+    #    opt = self.define_objective_function()
+    #    res = method(opt, bounds)
+    #
+    #    return res
 
     def __repr__(self):
         return f"ModelFit(data={self.data}, simulator={self.simulator}, prior={self.prior}, intguess={self.intguess})"
