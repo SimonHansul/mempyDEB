@@ -3,6 +3,8 @@
 mempyDEB is a Python package that provides the basics for doing DEB-TKTD modelling in Python. 
 It mostly defines a baseline model, default parameters and functions to run the model.
 
+If you find this useful/interesting, also consider checking out the Julia package [EcotoxSystems.jl](https://github.com/SimonHansul/EcotoxSystems/jl.git) and the corresponding [Python wrapper](https://github.com/SimonHansul/pyEcotoxSystems/tree/main).
+
 ## Installation
 
 To install `mempyDEB`, use the command
